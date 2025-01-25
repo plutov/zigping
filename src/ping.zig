@@ -3,7 +3,7 @@
 const std = @import("std");
 // const builtin = @import("builtin");
 // const net = std.net;
-const headers_max_size = 1024;
+const headers_max_size = 4096;
 
 const CrawlResult = struct {
     latency_ms: i32,

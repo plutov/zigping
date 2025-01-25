@@ -123,8 +123,8 @@ pub fn main() !void {
         const child = win.child(.{
             .x_off = win.width / 2 - 20,
             .y_off = win.height / 2 - 3,
-            .width = 40,
-            .height = 3,
+            .width = win.width,
+            .height = win.height,
             .border = .{
                 .where = .all,
                 .style = style,

@@ -4,12 +4,19 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const vaxis_dep = b.dependency("vaxis", .{
+        .target = target,
+        .optimize = optimize,
+        .libxev = false,
+    });
+
     const exe = b.addExecutable(.{
         .name = "zigping",
         .root_source_file = b.path("src/ping.zig"),
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.addImport("vaxis", vaxis_dep.module("vaxis"));
 
     b.installArtifact(exe);
 

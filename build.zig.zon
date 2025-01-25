@@ -1,0 +1,11 @@
+.{
+    .name = "zigping",
+    .version = "0.0.0",
+    .dependencies = .{
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis?ref=v0.5.1#2ab3b46e89bced844b60601c7ab9961420d15994",
+            .hash = "1220de23a3240e503397ea579de4fd85db422f537e10036ef74717c50164475813ce",
+        },
+    },
+    .paths = .{""},
+}

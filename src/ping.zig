@@ -1,7 +1,13 @@
-// const vaxis = @import("vaxis");
-
 const std = @import("std");
 const crawler = @import("crawler.zig");
+const vaxis = @import("vaxis");
+
+const Event = union(enum) {
+    key_press: vaxis.Key,
+    winsize: vaxis.Winsize,
+    focus_in,
+    foo: u8,
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -15,36 +21,79 @@ pub fn main() !void {
         std.debug.print("Usage: zigping <hostname1> <hostname2> ...\n", .{});
         return;
     }
-
     const hostnames = args[1..];
 
-    // http client
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
+    // Run crawler in thread
+    _ = try std.Thread.spawn(.{}, struct {
+        fn worker(_hostnames: [][]const u8, _allocator: std.mem.Allocator) !void {
+            try crawler.start(_hostnames, _allocator);
+        }
+    }.worker, .{ hostnames, allocator });
+
+    // Initialize a tty
+    var tty = try vaxis.Tty.init();
+    defer tty.deinit();
+
+    // Initialize Vaxis
+    var vx = try vaxis.init(allocator, .{});
+    defer vx.deinit(allocator, tty.anyWriter());
+
+    var loop: vaxis.Loop(Event) = .{
+        .tty = &tty,
+        .vaxis = &vx,
+    };
+    try loop.init();
+    try loop.start();
+    defer loop.stop();
+
+    var text_input = vaxis.widgets.TextInput.init(allocator, &vx.unicode);
+    defer text_input.deinit();
+
+    var color_idx: u8 = 0;
 
     while (true) {
-        var wg = std.Thread.WaitGroup{};
-        wg.reset();
-
-        for (hostnames) |hostname| {
-            wg.start();
-
-            // Spawn a thread for each url
-            _ = try std.Thread.spawn(.{}, struct {
-                fn worker(h: []const u8, c: *std.http.Client, w: *std.Thread.WaitGroup) void {
-                    defer w.finish();
-
-                    const result = crawler.crawl(c, h) catch |err| {
-                        std.debug.print("error crawling {s}: {}\n", .{ h, err });
-                        return;
-                    };
-
-                    std.debug.print("host={s},status={d},latency={d}ms\n", .{ h, result.status_code, result.latency_ms });
+        const event = loop.nextEvent();
+        switch (event) {
+            .key_press => |key| {
+                color_idx = switch (color_idx) {
+                    255 => 0,
+                    else => color_idx + 1,
+                };
+                if (key.matches('c', .{ .ctrl = true })) {
+                    break;
+                } else if (key.matches('l', .{ .ctrl = true })) {
+                    vx.queueRefresh();
+                } else {
+                    try text_input.update(.{ .key_press = key });
                 }
-            }.worker, .{ hostname, &client, &wg });
+            },
+            .winsize => |ws| try vx.resize(allocator, tty.anyWriter(), ws),
+            else => {},
         }
-        wg.wait();
 
-        std.time.sleep(std.time.ns_per_s);
+        const win = vx.window();
+        win.clear();
+
+        // Create a style
+        const style: vaxis.Style = .{
+            .fg = .{ .index = color_idx },
+        };
+
+        // Create a bordered child window
+        const child = win.child(.{
+            .x_off = 0,
+            .y_off = 0,
+            .width = 40,
+            .height = 3,
+            .border = .{
+                .where = .all,
+                .style = style,
+            },
+        });
+
+        text_input.draw(child);
+
+        // Render the screen
+        try vx.render(tty.anyWriter());
     }
 }

@@ -30,3 +30,36 @@ pub fn crawl(client: *std.http.Client, hostname: []const u8) !CrawlResult {
         .status_code = req.response.status,
     };
 }
+
+// blocking function
+pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator) !void {
+    // http client
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    while (true) {
+        var wg = std.Thread.WaitGroup{};
+        wg.reset();
+
+        for (hostnames) |hostname| {
+            wg.start();
+
+            // Spawn a thread for each url
+            _ = try std.Thread.spawn(.{}, struct {
+                fn worker(_hostname: []const u8, _client: *std.http.Client, _wg: *std.Thread.WaitGroup) void {
+                    defer _wg.finish();
+
+                    const result = crawl(_client, _hostname) catch |err| {
+                        std.debug.print("error crawling {s}: {}\n", .{ _hostname, err });
+                        return;
+                    };
+
+                    std.debug.print("host={s},status={d},latency={d}ms\n", .{ _hostname, result.status_code, result.latency_ms });
+                }
+            }.worker, .{ hostname, &client, &wg });
+        }
+        wg.wait();
+
+        std.time.sleep(std.time.ns_per_s);
+    }
+}

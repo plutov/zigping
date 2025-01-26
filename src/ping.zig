@@ -1,8 +1,7 @@
 // const vaxis = @import("vaxis");
 
 const std = @import("std");
-// const builtin = @import("builtin");
-// const net = std.net;
+// max size for server headers
 const headers_max_size = 4096;
 
 const CrawlResult = struct {
@@ -54,10 +53,27 @@ pub fn main() !void {
     defer client.deinit();
 
     while (true) {
+        var wg = std.Thread.WaitGroup{};
+        wg.reset();
+
         for (hostnames) |hostname| {
-            const result = try crawl(&client, hostname);
-            std.debug.print("host={s},status={d},latency={d}ms\n", .{ hostname, result.status_code, result.latency_ms });
+            wg.start();
+
+            // spawn thread for each url
+            _ = try std.Thread.spawn(.{}, struct {
+                fn worker(h: []const u8, c: *std.http.Client, w: *std.Thread.WaitGroup) void {
+                    defer w.finish();
+
+                    const result = crawl(c, h) catch |err| {
+                        std.debug.print("error crawling {s}: {}\n", .{ h, err });
+                        return;
+                    };
+
+                    std.debug.print("host={s},status={d},latency={d}ms\n", .{ h, result.status_code, result.latency_ms });
+                }
+            }.worker, .{ hostname, &client, &wg });
         }
+        wg.wait();
 
         std.time.sleep(std.time.ns_per_s);
     }

@@ -39,12 +39,12 @@ pub fn crawl(client: *std.http.Client, hostname: []const u8) !CrawlResult {
 }
 
 // blocking function
-pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator, loop: *vaxis.Loop(tui.Event)) !void {
+pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator, loop: *vaxis.Loop(tui.Event), running: *std.atomic.Value(bool)) !void {
     // http client
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    while (true) {
+    while (running.load(std.builtin.AtomicOrder.acquire)) {
         var wg = std.Thread.WaitGroup{};
         wg.reset();
 

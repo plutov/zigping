@@ -13,65 +13,63 @@ pub const App = struct {
     should_quit: bool,
     hostnames: [][]const u8,
     results: std.ArrayList(crawler.CrawlResult),
+    crawler_running: std.atomic.Value(bool),
 
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
-    loop: vaxis.Loop(Event),
-    win_ready: bool,
 
     pub fn init(allocator: std.mem.Allocator, hostnames: [][]const u8) !App {
-        var tty = try vaxis.Tty.init();
-        var vx = try vaxis.init(allocator, .{});
-
         return .{
             .allocator = allocator,
             .should_quit = false,
-            .tty = tty,
-            .vx = vx,
+            .tty = try vaxis.Tty.init(),
+            .vx = try vaxis.init(allocator, .{}),
             .hostnames = hostnames,
             .results = std.ArrayList(crawler.CrawlResult).init(allocator),
-            .loop = .{
-                .tty = &tty,
-                .vaxis = &vx,
-            },
-            .win_ready = false,
+            .crawler_running = std.atomic.Value(bool).init(true),
         };
     }
 
     pub fn deinit(self: *App) void {
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
+        self.results.deinit();
     }
 
     pub fn run(self: *App) !void {
-        try self.loop.init();
-        try self.loop.start();
-        defer self.loop.stop();
+        var loop: vaxis.Loop(Event) = .{
+            .tty = &self.tty,
+            .vaxis = &self.vx,
+        };
+        try loop.init();
+        try loop.start();
+        defer loop.stop();
 
-        try self.vx.enterAltScreen(self.tty.anyWriter());
         try self.vx.queryTerminal(self.tty.anyWriter(), 1 * std.time.ns_per_s);
         // disable mouse
         try self.vx.setMouseMode(self.tty.anyWriter(), false);
 
         // run crawler in thread
-        _ = try std.Thread.spawn(.{}, struct {
-            fn worker(_hostnames: [][]const u8, _allocator: std.mem.Allocator, _loop: *vaxis.Loop(Event)) !void {
-                try crawler.start(_hostnames, _allocator, _loop);
+        const crawler_thread = try std.Thread.spawn(.{}, struct {
+            fn worker(_hostnames: [][]const u8, _allocator: std.mem.Allocator, _loop: *vaxis.Loop(Event), _crawler_running: *std.atomic.Value(bool)) !void {
+                defer _crawler_running.store(false, std.builtin.AtomicOrder.release);
+                try crawler.start(_hostnames, _allocator, _loop, _crawler_running);
             }
-        }.worker, .{ self.hostnames, self.allocator, &self.loop });
+        }.worker, .{ self.hostnames, self.allocator, &loop, &self.crawler_running });
 
         // main event loop
         while (!self.should_quit) {
-            const event = self.loop.nextEvent();
+            const event = loop.nextEvent();
             try self.update(event);
+            if (self.should_quit) {
+                // stop the thread and wait for it to finish
+                self.crawler_running.store(false, std.builtin.AtomicOrder.release);
+                crawler_thread.join();
+            }
 
             self.draw();
 
-            var buffered = self.tty.bufferedWriter();
-
-            // render the application to the screen
-            try self.vx.render(buffered.writer().any());
-            try buffered.flush();
+            try self.vx.render(self.tty.anyWriter());
         }
     }
 
@@ -89,7 +87,6 @@ pub const App = struct {
             },
             .winsize => |ws| {
                 try self.vx.resize(self.allocator, self.tty.anyWriter(), ws);
-                self.win_ready = true;
             },
             .crawl_result => |result| {
                 _ = try self.results.append(result);
@@ -104,24 +101,20 @@ pub const App = struct {
         win.hideCursor();
         self.vx.setMouseShape(.default);
 
-        if (!self.win_ready) {
-            return;
-        }
-
         const container = win.child(.{
-            .x_off = 1,
-            .y_off = 1,
-            .width = win.width - 2,
-            .height = win.height - 2,
-            // todo: add border
+            .x_off = 0,
+            .y_off = 0,
+            .width = win.width,
+            .height = win.height,
             .border = .{ .where = .all },
         });
 
-        const msg = std.fmt.allocPrint(self.allocator, "HI {d}", .{self.results.items.len}) catch {
-            _ = win.printSegment(.{ .text = "ERROR" }, .{});
-            return;
-        };
-        defer self.allocator.free(msg);
-        _ = container.printSegment(.{ .text = msg }, .{});
+        _ = container.printSegment(.{ .text = "YO" }, .{});
+        // const msg = std.fmt.allocPrint(self.allocator, "HI {d}", .{self.results.items.len}) catch {
+        //     _ = win.printSegment(.{ .text = "ERROR" }, .{});
+        //     return;
+        // };
+        // defer self.allocator.free(msg);
+        // _ = container.printSegment(.{ .text = msg }, .{});
     }
 };

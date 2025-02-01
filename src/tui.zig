@@ -1,19 +1,23 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const crawler = @import("crawler.zig");
+const ts = @import("ts.zig");
 
 pub const Event = union(enum) {
     winsize: vaxis.Winsize,
     key_press: vaxis.Key,
-    crawl_result: crawler.CrawlResult,
+    crawl_results: []const crawler.CrawlResult,
 };
+
+const minScreenSize: i16 = 20;
+const smallScreenErr = "SCREEN IS TOO SMALL";
 
 pub const App = struct {
     allocator: std.mem.Allocator,
     should_quit: bool,
     hostnames: [][]const u8,
-    results: std.ArrayList(crawler.CrawlResult),
     crawler_running: std.atomic.Value(bool),
+    ts: ts.TimeSeries,
 
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
@@ -25,15 +29,15 @@ pub const App = struct {
             .tty = try vaxis.Tty.init(),
             .vx = try vaxis.init(allocator, .{}),
             .hostnames = hostnames,
-            .results = std.ArrayList(crawler.CrawlResult).init(allocator),
             .crawler_running = std.atomic.Value(bool).init(true),
+            .ts = try ts.TimeSeries.init(allocator),
         };
     }
 
     pub fn deinit(self: *App) void {
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
-        self.results.deinit();
+        self.ts.deinit();
     }
 
     pub fn run(self: *App) !void {
@@ -59,8 +63,11 @@ pub const App = struct {
 
         // main event loop
         while (!self.should_quit) {
-            const event = loop.nextEvent();
-            try self.update(event);
+            loop.pollEvent();
+            while (loop.tryEvent()) |event| {
+                try self.update(event);
+            }
+
             if (self.should_quit) {
                 // stop the thread and wait for it to finish
                 self.crawler_running.store(false, std.builtin.AtomicOrder.release);
@@ -88,11 +95,13 @@ pub const App = struct {
             .winsize => |ws| {
                 try self.vx.resize(self.allocator, self.tty.anyWriter(), ws);
             },
-            .crawl_result => |result| {
-                _ = try self.results.append(result);
+            .crawl_results => |results| {
+                try self.ts.addResults(results);
             },
         }
     }
+
+    const a = 2;
 
     pub fn draw(self: *App) void {
         const win = self.vx.window();
@@ -109,19 +118,37 @@ pub const App = struct {
             .border = .{ .where = .all },
         });
 
-        const msg = std.fmt.allocPrint(self.allocator, "HI {d}", .{self.results.items.len}) catch {
+        // terminate on small screens
+        if (win.width < minScreenSize) {
+            _ = win.printSegment(.{ .text = smallScreenErr }, .{});
+            return;
+        }
+        if (win.height < minScreenSize) {
+            _ = win.printSegment(.{ .text = smallScreenErr }, .{});
+            return;
+        }
+
+        const intervals_count = self.ts.intervals.items.len;
+        const msg = std.fmt.allocPrint(self.allocator, "HI {d}", .{intervals_count}) catch {
             _ = win.printSegment(.{ .text = "ERROR" }, .{});
             return;
         };
         // TODO: free memory
         // defer self.allocator.free(msg);
-        _ = container.printSegment(.{ .text = msg }, .{
-            .style = .{
-               .bold = true,
-            },
+        _ = container.printSegment(.{
+            .text = msg,
+        }, .{
             .row_offset = 10,
             .col_offset = 10,
             .wrap = .grapheme,
+        });
+        container.writeCell(1, 1, .{
+            .char = .{
+                .grapheme = "*",
+            },
+            .style = .{
+                .bg = .{ .rgb = [_]u8{ 50, 20, 100 } },
+            },
         });
     }
 };

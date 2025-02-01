@@ -16,8 +16,16 @@ pub fn crawl(client: *std.http.Client, hostname: []const u8) !CrawlResult {
     // Allocate a buffer for server headers
     var buf: [headers_max_size]u8 = undefined;
 
+    var uri = try std.Uri.parse(hostname);
+    // Add https:// if no scheme is present
+    if (uri.scheme.len == 0) {
+        const hostname_with_schema = try std.fmt.allocPrint(std.heap.page_allocator, "{s}{s}", .{ "https://", hostname });
+        defer std.heap.page_allocator.free(hostname_with_schema);
+
+        uri = try std.Uri.parse(hostname_with_schema);
+    }
+
     // Start the HTTP request
-    const uri = try std.Uri.parse(hostname);
     var req = try client.open(.GET, uri, .{ .server_header_buffer = &buf });
     defer req.deinit();
 
@@ -45,36 +53,42 @@ pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator, loop: *vaxis
     defer client.deinit();
 
     while (running.load(std.builtin.AtomicOrder.acquire)) {
+        // Store results here
+        var results = std.ArrayList(CrawlResult).init(allocator);
+        defer results.deinit();
+        try results.resize(hostnames.len);
+
         var wg = std.Thread.WaitGroup{};
         wg.reset();
 
-        for (hostnames) |hostname| {
+        for (hostnames, 0..) |hostname, i| {
             wg.start();
 
             // Spawn a thread for each url
             _ = try std.Thread.spawn(.{}, struct {
-                fn worker(_hostname: []const u8, _client: *std.http.Client, _wg: *std.Thread.WaitGroup, _loop: *vaxis.Loop(tui.Event)) void {
+                fn worker(_hostname: []const u8, _client: *std.http.Client, _wg: *std.Thread.WaitGroup, _results: *std.ArrayList(CrawlResult), _i: usize) !void {
                     defer _wg.finish();
 
                     const result = crawl(_client, _hostname) catch {
-                        _loop.postEvent(.{
-                            .crawl_result = CrawlResult{
-                                .success = false,
-                                .hostname = _hostname,
-                                .latency_ms = 0,
-                                .status_code = std.http.Status.internal_server_error,
-                            },
+                        try _results.insert(_i, .{
+                            .success = false,
+                            .hostname = _hostname,
+                            .latency_ms = 0,
+                            .status_code = std.http.Status.internal_server_error,
                         });
                         return;
                     };
 
-                    _loop.postEvent(.{
-                        .crawl_result = result,
-                    });
+                    try _results.insert(_i, result);
                 }
-            }.worker, .{ hostname, &client, &wg, loop });
+            }.worker, .{ hostname, &client, &wg, &results, i });
         }
         wg.wait();
+
+        // Post all results at once
+        loop.postEvent(.{
+            .crawl_results = results.items,
+        });
 
         std.time.sleep(std.time.ns_per_s);
     }

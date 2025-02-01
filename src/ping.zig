@@ -2,7 +2,7 @@ const std = @import("std");
 const tui = @import("tui.zig");
 
 // disable debug log
-pub const log_level: std.log.Level = .info;
+pub const log_level: std.log.Level = .err;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

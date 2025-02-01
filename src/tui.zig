@@ -115,6 +115,13 @@ pub const App = struct {
         };
         // TODO: free memory
         // defer self.allocator.free(msg);
-        _ = container.printSegment(.{ .text = msg }, .{});
+        _ = container.printSegment(.{ .text = msg }, .{
+            .style = .{
+               .bold = true,
+            },
+            .row_offset = 10,
+            .col_offset = 10,
+            .wrap = .grapheme,
+        });
     }
 };

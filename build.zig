@@ -8,7 +8,6 @@ pub fn build(b: *std.Build) void {
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
         .optimize = optimize,
-        .libxev = false,
     });
 
     // executable

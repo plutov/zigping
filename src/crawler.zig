@@ -1,8 +1,13 @@
 const std = @import("std");
+const tui = @import("tui.zig");
+const vaxis = @import("vaxis");
+
 // max size for server headers
 const headers_max_size = 4096;
 
 pub const CrawlResult = struct {
+    success: bool,
+    hostname: []const u8,
     latency_ms: i32,
     status_code: std.http.Status,
 };
@@ -26,13 +31,15 @@ pub fn crawl(client: *std.http.Client, hostname: []const u8) !CrawlResult {
     const latency_ms = @as(i32, @intFromFloat(latency / std.time.ns_per_ms));
 
     return CrawlResult{
+        .success = true,
+        .hostname = hostname,
         .latency_ms = latency_ms,
         .status_code = req.response.status,
     };
 }
 
 // blocking function
-pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator) !void {
+pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator, loop: *vaxis.Loop(tui.Event)) !void {
     // http client
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
@@ -46,17 +53,26 @@ pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator) !void {
 
             // Spawn a thread for each url
             _ = try std.Thread.spawn(.{}, struct {
-                fn worker(_hostname: []const u8, _client: *std.http.Client, _wg: *std.Thread.WaitGroup) void {
+                fn worker(_hostname: []const u8, _client: *std.http.Client, _wg: *std.Thread.WaitGroup, _loop: *vaxis.Loop(tui.Event)) void {
                     defer _wg.finish();
 
-                    const result = crawl(_client, _hostname) catch |err| {
-                        std.debug.print("error crawling {s}: {}\n", .{ _hostname, err });
+                    const result = crawl(_client, _hostname) catch {
+                        _loop.postEvent(.{
+                            .crawl_result = CrawlResult{
+                                .success = false,
+                                .hostname = _hostname,
+                                .latency_ms = 0,
+                                .status_code = std.http.Status.internal_server_error,
+                            },
+                        });
                         return;
                     };
 
-                    std.debug.print("host={s},status={d},latency={d}ms\n", .{ _hostname, result.status_code, result.latency_ms });
+                    _loop.postEvent(.{
+                        .crawl_result = result,
+                    });
                 }
-            }.worker, .{ hostname, &client, &wg });
+            }.worker, .{ hostname, &client, &wg, loop });
         }
         wg.wait();
 

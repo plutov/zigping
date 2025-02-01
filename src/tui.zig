@@ -109,12 +109,12 @@ pub const App = struct {
             .border = .{ .where = .all },
         });
 
-        // _ = container.printSegment(.{ .text = "YO" }, .{});
         const msg = std.fmt.allocPrint(self.allocator, "HI {d}", .{self.results.items.len}) catch {
             _ = win.printSegment(.{ .text = "ERROR" }, .{});
             return;
         };
-        defer self.allocator.free(msg);
+        // TODO: free memory
+        // defer self.allocator.free(msg);
         _ = container.printSegment(.{ .text = msg }, .{});
     }
 };

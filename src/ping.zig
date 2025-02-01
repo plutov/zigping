@@ -7,7 +7,12 @@ pub const log_level: std.log.Level = .info;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) {
+            std.log.err("memory leak", .{});
+        }
+    }
 
     // command-line args
     const args = try std.process.argsAlloc(allocator);

@@ -12,22 +12,22 @@ pub const CrawlResult = struct {
     status_code: std.http.Status,
 };
 
-fn get_uri(hostname: []const u8) !std.Uri {
-    const uri = std.Uri.parse(hostname) catch {
-        const hostname_with_schema = try std.fmt.allocPrint(std.heap.page_allocator, "{s}{s}", .{ "https://", hostname });
-        defer std.heap.page_allocator.free(hostname_with_schema);
-
-        return std.Uri.parse(hostname_with_schema);
-    };
-
-    return uri;
-}
-
-pub fn crawl(client: *std.http.Client, hostname: []const u8) !CrawlResult {
+pub fn crawl(allocator: std.mem.Allocator, hostname: []const u8) !CrawlResult {
     // Allocate a buffer for server headers
     var buf: [headers_max_size]u8 = undefined;
 
-    const uri = try get_uri(hostname);
+    const hostname_with_scheme = try std.fmt.allocPrint(std.heap.page_allocator, "{s}{s}", .{ "https://", hostname });
+    defer std.heap.page_allocator.free(hostname_with_scheme);
+
+    const uri = std.Uri.parse(hostname) catch blk: {
+        // try with https scheme
+        const uri_with_scheme = try std.Uri.parse(hostname_with_scheme);
+        break :blk uri_with_scheme;
+    };
+
+    // http client
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
 
     // Start the HTTP request
     var req = try client.open(.GET, uri, .{ .server_header_buffer = &buf });
@@ -52,44 +52,27 @@ pub fn crawl(client: *std.http.Client, hostname: []const u8) !CrawlResult {
 
 // blocking function
 pub fn start(hostnames: [][]const u8, allocator: std.mem.Allocator, loop: *vaxis.Loop(tui.Event), running: *std.atomic.Value(bool)) !void {
-    // http client
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
     // Store results here
     var results = std.ArrayList(CrawlResult).init(allocator);
     defer results.deinit();
 
-    while (running.load(std.builtin.AtomicOrder.acquire)) {
-        var wg = std.Thread.WaitGroup{};
-        wg.reset();
-
+    while (running.load(.monotonic)) {
         for (hostnames) |hostname| {
-            wg.start();
+            const result = crawl(allocator, hostname) catch blk: {
+                const empty_res: CrawlResult = .{
+                    .success = false,
+                    .hostname = hostname,
+                    .latency_ms = 0,
+                    .status_code = std.http.Status.internal_server_error,
+                };
+                break :blk empty_res;
+            };
 
-            // Spawn a thread for each url
-            _ = try std.Thread.spawn(.{}, struct {
-                fn worker(_hostname: []const u8, _client: *std.http.Client, _wg: *std.Thread.WaitGroup, _results: *std.ArrayList(CrawlResult)) !void {
-                    defer _wg.finish();
-
-                    const result = crawl(_client, _hostname) catch {
-                        try _results.append(.{
-                            .success = false,
-                            .hostname = _hostname,
-                            .latency_ms = 0,
-                            .status_code = std.http.Status.internal_server_error,
-                        });
-                        return;
-                    };
-
-                    try _results.append(result);
-                }
-            }.worker, .{ hostname, &client, &wg, &results });
+            try results.append(result);
         }
-        wg.wait();
 
         loop.postEvent(.{
-            .crawl_results = results.items[results.items.len - hostnames.len..results.items.len],
+            .crawl_results = results.items[results.items.len - hostnames.len .. results.items.len],
         });
 
         std.time.sleep(std.time.ns_per_s);

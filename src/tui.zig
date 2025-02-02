@@ -16,12 +16,13 @@ const HostnameStats = struct {
     msg: []const u8,
 };
 
+// collection of colors
 const COLORS = [5]vaxis.Color{
-    .{ .rgb = .{ 255, 255, 0 } }, // Yellow
-    .{ .rgb = .{ 255, 0, 255 } }, // Magenta
-    .{ .rgb = .{ 0, 255, 255 } }, // Cyan
-    .{ .rgb = .{ 50, 150, 200 } }, // Light Blue
-    .{ .rgb = .{ 100, 200, 100 } }, // Light Green
+    .{ .rgb = .{ 255, 255, 0 } },
+    .{ .rgb = .{ 255, 0, 255 } },
+    .{ .rgb = .{ 0, 255, 255 } },
+    .{ .rgb = .{ 50, 150, 200 } },
+    .{ .rgb = .{ 100, 200, 100 } },
 };
 
 pub const App = struct {
@@ -83,7 +84,6 @@ pub const App = struct {
         // run crawler in thread
         const crawler_thread = try std.Thread.spawn(.{}, struct {
             fn worker(_hostnames: [][]const u8, _allocator: std.mem.Allocator, _loop: *vaxis.Loop(Event), _crawler_running: *std.atomic.Value(bool)) !void {
-                defer _crawler_running.store(false, std.builtin.AtomicOrder.release);
                 try crawler.start(_hostnames, _allocator, _loop, _crawler_running);
             }
         }.worker, .{ self.hostnames, self.allocator, &loop, &self.crawler_running });
@@ -97,8 +97,9 @@ pub const App = struct {
 
             if (self.should_quit) {
                 // stop the thread and wait for it to finish
-                self.crawler_running.store(false, std.builtin.AtomicOrder.release);
+                self.crawler_running.store(false, .release);
                 crawler_thread.join();
+                return;
             }
 
             try self.draw();
@@ -158,7 +159,7 @@ pub const App = struct {
         for (self.hostnames, 0..) |hostname, i| {
             var hostname_stats = self.ts.hostnamesStats.get(hostname);
             if (hostname_stats) |*stats| {
-                const msg = try std.fmt.allocPrint(self.allocator, "{s}: avg {d:.2}ms", .{ hostname, stats.avg_latency });
+                const msg = try std.fmt.allocPrint(self.allocator, "{s}: avg {d:.2}ms, min {d:.2}ms, max {d:.2}ms", .{ hostname, stats.avg_latency, stats.min_latency, stats.max_latency });
 
                 try self.state.hostnames_stats.insert(i, .{
                     .msg = msg,

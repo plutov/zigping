@@ -93,14 +93,21 @@ pub const TimeSeries = struct {
 
                 var hostname_stats = self.hostnamesStats.get(hostname_copy);
                 if (hostname_stats) |*stats| {
+                    const _latency_ms: f64 = @floatFromInt(result.latency_ms);
+                    const _total_latency = stats.total_latency + _latency_ms;
+                    const _total_results = stats.total_results + 1;
+                    const _avg_latency = _total_latency / _total_results;
+
+                    try self.hostnamesStats.put(hostname_copy, .{
+                        .min_latency = @min(stats.min_latency, result.latency_ms),
+                        .max_latency = @max(stats.max_latency, result.latency_ms),
+                        .total_latency = _total_latency,
+                        .total_results = _total_results,
+                        .avg_latency = _avg_latency,
+                    });
+
                     // we don't need this copy anymore
                     self.allocator.free(hostname_copy);
-
-                    stats.min_latency = @min(stats.min_latency, result.latency_ms);
-                    stats.max_latency = @max(stats.max_latency, result.latency_ms);
-                    stats.total_latency += @floatFromInt(result.latency_ms);
-                    stats.total_results += 1;
-                    stats.avg_latency = stats.total_latency / stats.total_results;
                 } else {
                     try self.hostnamesStats.put(hostname_copy, .{
                         .min_latency = result.latency_ms,

@@ -37,7 +37,7 @@ pub const App = struct {
     pub fn deinit(self: *App) void {
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
-        self.ts.deinit();
+        // self.ts.deinit();
     }
 
     pub fn run(self: *App) !void {

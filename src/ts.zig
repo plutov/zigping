@@ -38,6 +38,10 @@ pub const TimeSeries = struct {
     }
 
     pub fn deinit(self: *TimeSeries) void {
+        // free results
+        for (self.intervals.items) |interval| {
+            self.allocator.free(interval.crawl_results);
+        }
         self.intervals.deinit();
 
         // free hostname copies in the hash map
@@ -49,17 +53,20 @@ pub const TimeSeries = struct {
     }
 
     pub fn addResults(self: *TimeSeries, results: []const crawler.CrawlResult) !void {
+        const results_copy = try self.allocator.dupe(crawler.CrawlResult, results);
+
         try self.intervals.append(.{
             .timestamp = std.time.timestamp(),
-            .crawl_results = results,
+            .crawl_results = results_copy,
         });
 
         while (self.intervals.items.len > maxIntervals) {
-            _ = self.intervals.orderedRemove(0);
+            const removed_interval = self.intervals.orderedRemove(0);
+            self.allocator.free(removed_interval.crawl_results);
         }
 
         // update min and max latency
-        for (results) |result| {
+        for (results_copy) |result| {
             self.min_latency = @min(result.latency_ms, self.min_latency);
             self.max_latency = @max(result.latency_ms, self.max_latency);
         }
@@ -82,10 +89,11 @@ pub const TimeSeries = struct {
         // calculate avergaes per hostname
         for (self.intervals.items) |interval| {
             for (interval.crawl_results) |result| {
-                const hostname_copy = try self.allocator.dupeZ(u8, result.hostname);
+                const hostname_copy = try self.allocator.dupe(u8, result.hostname);
 
                 var hostname_stats = self.hostnamesStats.get(hostname_copy);
                 if (hostname_stats) |*stats| {
+                    // we don't need this copy anymore
                     self.allocator.free(hostname_copy);
 
                     stats.min_latency = @min(stats.min_latency, result.latency_ms);

@@ -12,6 +12,18 @@ pub const Event = union(enum) {
 const minScreenSize: i16 = 20;
 const smallScreenErr = "SCREEN IS TOO SMALL";
 
+const HostnameStats = struct {
+    msg: []const u8,
+};
+
+const COLORS = [5]vaxis.Color{
+    .{ .rgb = .{ 255, 255, 0 } }, // Yellow
+    .{ .rgb = .{ 255, 0, 255 } }, // Magenta
+    .{ .rgb = .{ 0, 255, 255 } }, // Cyan
+    .{ .rgb = .{ 50, 150, 200 } }, // Light Blue
+    .{ .rgb = .{ 100, 200, 100 } }, // Light Green
+};
+
 pub const App = struct {
     allocator: std.mem.Allocator,
     should_quit: bool,
@@ -22,7 +34,14 @@ pub const App = struct {
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
 
+    state: struct {
+        hostnames_stats: std.ArrayList(HostnameStats),
+    },
+
     pub fn init(allocator: std.mem.Allocator, hostnames: [][]const u8) !App {
+        var hostnames_stats = std.ArrayList(HostnameStats).init(allocator);
+        try hostnames_stats.resize(hostnames.len);
+
         return .{
             .allocator = allocator,
             .should_quit = false,
@@ -31,13 +50,21 @@ pub const App = struct {
             .hostnames = hostnames,
             .crawler_running = std.atomic.Value(bool).init(true),
             .ts = try ts.TimeSeries.init(allocator),
+            .state = .{
+                .hostnames_stats = hostnames_stats,
+            },
         };
     }
 
     pub fn deinit(self: *App) void {
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
-        // self.ts.deinit();
+        self.ts.deinit();
+
+        for (self.state.hostnames_stats.items) |item| {
+            self.allocator.free(item.msg);
+        }
+        self.state.hostnames_stats.deinit();
     }
 
     pub fn run(self: *App) !void {
@@ -74,7 +101,7 @@ pub const App = struct {
                 crawler_thread.join();
             }
 
-            self.draw();
+            try self.draw();
 
             try self.vx.render(self.tty.anyWriter());
         }
@@ -103,7 +130,7 @@ pub const App = struct {
 
     const a = 2;
 
-    pub fn draw(self: *App) void {
+    pub fn draw(self: *App) !void {
         const win = self.vx.window();
 
         win.clear();
@@ -128,27 +155,30 @@ pub const App = struct {
             return;
         }
 
-        const intervals_count = self.ts.intervals.items.len;
-        const msg = std.fmt.allocPrint(self.allocator, "HI {d}", .{intervals_count}) catch {
-            _ = win.printSegment(.{ .text = "ERROR" }, .{});
-            return;
-        };
-        // TODO: free memory
-        // defer self.allocator.free(msg);
-        _ = container.printSegment(.{
-            .text = msg,
-        }, .{
-            .row_offset = 10,
-            .col_offset = 10,
-            .wrap = .grapheme,
-        });
-        container.writeCell(1, 1, .{
-            .char = .{
-                .grapheme = "*",
-            },
-            .style = .{
-                .bg = .{ .rgb = [_]u8{ 50, 20, 100 } },
-            },
-        });
+        for (self.hostnames, 0..) |hostname, i| {
+            var hostname_stats = self.ts.hostnamesStats.get(hostname);
+            if (hostname_stats) |*stats| {
+                const msg = try std.fmt.allocPrint(self.allocator, "{s}: avg {d:.2}ms", .{ hostname, stats.avg_latency });
+
+                try self.state.hostnames_stats.insert(i, .{
+                    .msg = msg,
+                });
+
+                const color_index = i % COLORS.len;
+                const color = COLORS[color_index];
+
+                // print hostname line
+                const row: u16 = @intCast(i);
+                _ = container.printSegment(.{
+                    .text = msg,
+                    .style = .{
+                        .fg = color,
+                    },
+                }, .{
+                    .row_offset = row,
+                    .col_offset = 1,
+                });
+            }
+        }
     }
 };

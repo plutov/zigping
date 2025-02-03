@@ -1,7 +1,7 @@
 const std = @import("std");
 const crawler = @import("crawler.zig");
 
-// max amount of intervals to store, we assume it's enough'
+// max amount of intervals to store, we assume it's enough
 const maxIntervals: i32 = 1024;
 
 pub const Interval = struct {

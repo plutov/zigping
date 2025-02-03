@@ -9,7 +9,8 @@ pub const Event = union(enum) {
     crawl_results: []const crawler.CrawlResult,
 };
 
-const minScreenSize: i16 = 20;
+const minWidth: u16 = 50;
+const minHeight: u16 = 25;
 const smallScreenErr = "SCREEN IS TOO SMALL";
 
 const HostnameStats = struct {
@@ -58,9 +59,9 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App) void {
+        self.ts.deinit();
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
-        self.ts.deinit();
 
         for (self.state.hostnames_stats.items) |item| {
             self.allocator.free(item.msg);
@@ -77,16 +78,19 @@ pub const App = struct {
         try loop.start();
         defer loop.stop();
 
+        var crawler_instance = crawler.Crawler.init(self.allocator);
+        defer crawler_instance.deinit();
+
         try self.vx.queryTerminal(self.tty.anyWriter(), 1 * std.time.ns_per_s);
         // disable mouse
         try self.vx.setMouseMode(self.tty.anyWriter(), false);
 
         // run crawler in thread
-        const crawler_thread = try std.Thread.spawn(.{}, struct {
-            fn worker(_hostnames: [][]const u8, _allocator: std.mem.Allocator, _loop: *vaxis.Loop(Event), _crawler_running: *std.atomic.Value(bool)) !void {
-                try crawler.start(_hostnames, _allocator, _loop, _crawler_running);
+        const crawler_thread = try std.Thread.spawn(.{ .allocator = self.allocator }, struct {
+            fn worker(_hostnames: [][]const u8, _crawler_instance: *crawler.Crawler, _loop: *vaxis.Loop(Event), _crawler_running: *std.atomic.Value(bool)) !void {
+                _crawler_instance.start(_hostnames, _loop, _crawler_running);
             }
-        }.worker, .{ self.hostnames, self.allocator, &loop, &self.crawler_running });
+        }.worker, .{ self.hostnames, &crawler_instance, &loop, &self.crawler_running });
 
         // main event loop
         while (!self.should_quit) {
@@ -103,7 +107,6 @@ pub const App = struct {
             }
 
             try self.draw();
-
             try self.vx.render(self.tty.anyWriter());
         }
     }
@@ -129,8 +132,6 @@ pub const App = struct {
         }
     }
 
-    const a = 2;
-
     pub fn draw(self: *App) !void {
         const win = self.vx.window();
 
@@ -147,12 +148,18 @@ pub const App = struct {
         });
 
         // terminate on small screens
-        if (win.width < minScreenSize) {
-            _ = win.printSegment(.{ .text = smallScreenErr }, .{});
+        if (win.width < minWidth) {
+            _ = win.printSegment(.{ .text = smallScreenErr, .style = .{ .fg = COLORS[1] } }, .{
+                .row_offset = 1,
+                .col_offset = 1,
+            });
             return;
         }
-        if (win.height < minScreenSize) {
-            _ = win.printSegment(.{ .text = smallScreenErr }, .{});
+        if (win.height < minHeight) {
+            _ = win.printSegment(.{ .text = smallScreenErr, .style = .{ .fg = COLORS[1] } }, .{
+                .row_offset = 1,
+                .col_offset = 1,
+            });
             return;
         }
 
@@ -172,9 +179,7 @@ pub const App = struct {
                 const row: u16 = @intCast(i);
                 _ = container.printSegment(.{
                     .text = msg,
-                    .style = .{
-                        .fg = color,
-                    },
+                    .style = .{ .fg = color },
                 }, .{
                     .row_offset = row,
                     .col_offset = 1,

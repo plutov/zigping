@@ -22,3 +22,7 @@ See `build.zig`.
 ```bash
 zig build
 ```
+
+## Notes
+
+- Minimal screen size is 30x30

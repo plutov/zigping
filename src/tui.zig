@@ -13,10 +13,6 @@ const minWidth: u16 = 50;
 const minHeight: u16 = 25;
 const smallScreenErr = "SCREEN IS TOO SMALL";
 
-const HostnameStats = struct {
-    msg: []const u8,
-};
-
 // collection of colors
 const COLORS = [5]vaxis.Color{
     .{ .rgb = .{ 255, 255, 0 } },
@@ -37,13 +33,10 @@ pub const App = struct {
     vx: vaxis.Vaxis,
 
     state: struct {
-        hostnames_stats: std.ArrayList(HostnameStats),
+        messages: std.ArrayList([]u8),
     },
 
     pub fn init(allocator: std.mem.Allocator, hostnames: [][]const u8) !App {
-        var hostnames_stats = std.ArrayList(HostnameStats).init(allocator);
-        try hostnames_stats.resize(hostnames.len);
-
         return .{
             .allocator = allocator,
             .should_quit = false,
@@ -53,7 +46,7 @@ pub const App = struct {
             .crawler_running = std.atomic.Value(bool).init(true),
             .ts = try ts.TimeSeries.init(allocator),
             .state = .{
-                .hostnames_stats = hostnames_stats,
+                .messages = std.ArrayList([]u8).init(allocator),
             },
         };
     }
@@ -63,10 +56,10 @@ pub const App = struct {
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
 
-        for (self.state.hostnames_stats.items) |item| {
-            self.allocator.free(item.msg);
+        for (self.state.messages.items) |item| {
+            self.allocator.free(item);
         }
-        self.state.hostnames_stats.deinit();
+        self.state.messages.deinit();
     }
 
     pub fn run(self: *App) !void {
@@ -167,10 +160,7 @@ pub const App = struct {
             var hostname_stats = self.ts.hostnamesStats.get(hostname);
             if (hostname_stats) |*stats| {
                 const msg = try std.fmt.allocPrint(self.allocator, "{s}: avg {d:.2}ms, min {d:.2}ms, max {d:.2}ms", .{ hostname, stats.avg_latency, stats.min_latency, stats.max_latency });
-
-                try self.state.hostnames_stats.insert(i, .{
-                    .msg = msg,
-                });
+                try self.state.messages.append(msg);
 
                 const color_index = i % COLORS.len;
                 const color = COLORS[color_index];

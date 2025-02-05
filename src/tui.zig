@@ -159,7 +159,7 @@ pub const App = struct {
         for (self.hostnames, 0..) |hostname, i| {
             var hostname_stats = self.ts.hostnamesStats.get(hostname);
             if (hostname_stats) |*stats| {
-                const msg = try std.fmt.allocPrint(self.allocator, "{s}: avg {d:.2}ms, min {d:.2}ms, max {d:.2}ms", .{ hostname, stats.avg_latency, stats.min_latency, stats.max_latency });
+                const msg = try std.fmt.allocPrint(self.allocator, "{s}: avg {d:.1}ms, min {d}ms, max {d}ms", .{ hostname, stats.avg_latency, stats.min_latency, stats.max_latency });
                 try self.state.messages.append(msg);
 
                 const color_index = i % COLORS.len;
@@ -175,6 +175,61 @@ pub const App = struct {
                     .col_offset = 1,
                 });
             }
+        }
+
+        const minMsg = try std.fmt.allocPrint(self.allocator, "{d}ms", .{self.ts.min_latency});
+        try self.state.messages.append(minMsg);
+        const maxMsg = try std.fmt.allocPrint(self.allocator, "{d}ms", .{self.ts.max_latency});
+        try self.state.messages.append(maxMsg);
+
+        var maxLen = minMsg.len;
+        if (maxMsg.len > maxLen) {
+            maxLen = maxMsg.len;
+        }
+
+        // draw legend
+        var row: u16 = @intCast(self.hostnames.len);
+        row += 1;
+        const verticalCol: u16 = @intCast(maxLen);
+        while (row < win.height - 2) {
+            _ = container.printSegment(.{
+                .text = "│",
+                .style = .{ .fg = COLORS[4] },
+            }, .{
+                .row_offset = row,
+                .col_offset = verticalCol + 2,
+            });
+            row += 1;
+        }
+        const maxRow: u16 = @intCast(self.hostnames.len);
+        _ = container.printSegment(.{
+            .text = minMsg,
+            .style = .{ .fg = COLORS[3] },
+        }, .{
+            .row_offset = win.height - 3,
+            .col_offset = 1,
+        });
+        _ = container.printSegment(.{
+            .text = maxMsg,
+            .style = .{ .fg = COLORS[3] },
+        }, .{
+            .row_offset = maxRow + 1,
+            .col_offset = 1,
+        });
+
+        // draw graph
+        const intervalsCount: usize = @intCast(win.width - verticalCol - 3);
+        const intervals = self.ts.getLastNIntervals(intervalsCount);
+        var col = verticalCol + 3;
+        while (col < intervals.len) {
+            _ = container.printSegment(.{
+                .text = "*",
+                .style = .{ .fg = COLORS[2] },
+            }, .{
+                .row_offset = maxRow + 2,
+                .col_offset = col,
+            });
+            col += 1;
         }
     }
 };

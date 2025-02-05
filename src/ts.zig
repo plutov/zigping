@@ -1,9 +1,6 @@
 const std = @import("std");
 const crawler = @import("crawler.zig");
 
-// max amount of intervals to store, we assume it's enough
-const maxIntervals: i32 = 1024;
-
 pub const Interval = struct {
     timestamp: i64,
     crawl_results: []const crawler.CrawlResult,
@@ -52,24 +49,38 @@ pub const TimeSeries = struct {
         self.hostnamesStats.deinit();
     }
 
+    pub fn getLastNIntervals(self: *TimeSeries, n: usize) []Interval {
+        const len = self.intervals.items.len;
+
+        if (len == 0) {
+            return &[_]Interval{};
+        }
+
+        var start_index: usize = 0;
+        if (len >= n) {
+            start_index = len - n;
+        }
+
+        return self.intervals.items[start_index..];
+    }
+
     pub fn addResults(self: *TimeSeries, results: []const crawler.CrawlResult) !void {
         const results_copy = try self.allocator.dupe(crawler.CrawlResult, results);
+
+        // update min and max latency
+        for (results_copy) |result| {
+            if (self.intervals.items.len == 0) {
+                self.min_latency = result.latency_ms;
+            } else {
+                self.min_latency = @min(result.latency_ms, self.min_latency);
+            }
+            self.max_latency = @max(result.latency_ms, self.max_latency);
+        }
 
         try self.intervals.append(.{
             .timestamp = std.time.timestamp(),
             .crawl_results = results_copy,
         });
-
-        while (self.intervals.items.len > maxIntervals) {
-            const removed_interval = self.intervals.orderedRemove(0);
-            self.allocator.free(removed_interval.crawl_results);
-        }
-
-        // update min and max latency
-        for (results_copy) |result| {
-            self.min_latency = @min(result.latency_ms, self.min_latency);
-            self.max_latency = @max(result.latency_ms, self.max_latency);
-        }
 
         // calculate average latency from all intervals
         var total_latency: f64 = 0;

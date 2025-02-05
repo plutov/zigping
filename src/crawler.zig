@@ -70,6 +70,7 @@ pub const Crawler = struct {
 
     pub fn start(self: *Crawler, hostnames: [][]const u8, loop: *vaxis.Loop(tui.Event), running: *std.atomic.Value(bool)) void {
         while (running.load(.monotonic)) {
+            // TODO: use WaitGroup
             for (hostnames) |hostname| {
                 const result = self.crawl(self.allocator, hostname) catch blk: {
                     const empty_res: CrawlResult = .{
@@ -92,7 +93,7 @@ pub const Crawler = struct {
                 _ = self.results.orderedRemove(0);
             }
 
-            std.time.sleep(std.time.ns_per_s);
+            std.time.sleep(std.time.ns_per_s / 2);
         }
     }
 };

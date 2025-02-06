@@ -1,6 +1,10 @@
+![screenshot](https://raw.github.com/plutov/zigping/master/screenshot.png)
+
 # zigping
 
 Inspired by [gping](https://github.com/orf/gping).
+
+Not ready for real use, this project is purely for learning Zig.
 
 ## Usage
 
@@ -25,4 +29,4 @@ zig build
 
 ## Notes
 
-- Minimal screen size is 30x30
+- Minimal screen size is 50x25

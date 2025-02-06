@@ -64,6 +64,22 @@ pub const TimeSeries = struct {
         return self.intervals.items[start_index..];
     }
 
+    fn roundToNearest50(value: i32, roundUp: bool) i32 {
+        const remainder = std.math.mod(i32, value, 50) catch blk: {
+            break :blk 0;
+        };
+
+        if (roundUp) {
+            if (remainder == 0) {
+                return value;
+            }
+
+            return value + (50 - remainder);
+        }
+
+        return value - remainder;
+    }
+
     pub fn addResults(self: *TimeSeries, results: []const crawler.CrawlResult) !void {
         const results_copy = try self.allocator.dupe(crawler.CrawlResult, results);
 
@@ -75,6 +91,10 @@ pub const TimeSeries = struct {
                 self.min_latency = @min(result.latency_ms, self.min_latency);
             }
             self.max_latency = @max(result.latency_ms, self.max_latency);
+
+            // round
+            self.min_latency = roundToNearest50(self.min_latency, false);
+            self.max_latency = roundToNearest50(self.max_latency, true);
         }
 
         try self.intervals.append(.{

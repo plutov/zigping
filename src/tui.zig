@@ -142,20 +142,29 @@ pub const App = struct {
 
         // terminate on small screens
         if (win.width < minWidth) {
-            _ = win.printSegment(.{ .text = smallScreenErr, .style = .{ .fg = COLORS[1] } }, .{
-                .row_offset = 1,
-                .col_offset = 1,
-            });
+            drawErr(container);
             return;
         }
         if (win.height < minHeight) {
-            _ = win.printSegment(.{ .text = smallScreenErr, .style = .{ .fg = COLORS[1] } }, .{
-                .row_offset = 1,
-                .col_offset = 1,
-            });
+            drawErr(container);
             return;
         }
 
+        try self.drawSummary(container);
+
+        const graphStartCol = try self.drawLegend(win, container);
+
+        try self.drawGraph(win, container, graphStartCol);
+    }
+
+    fn drawErr(container: vaxis.Window) void {
+        _ = container.printSegment(.{ .text = smallScreenErr, .style = .{ .fg = COLORS[1] } }, .{
+            .row_offset = 1,
+            .col_offset = 1,
+        });
+    }
+
+    fn drawSummary(self: *App, container: vaxis.Window) !void {
         for (self.hostnames, 0..) |hostname, i| {
             var hostname_stats = self.ts.hostnamesStats.get(hostname);
             if (hostname_stats) |*stats| {
@@ -176,7 +185,9 @@ pub const App = struct {
                 });
             }
         }
+    }
 
+    fn drawLegend(self: *App, win: vaxis.Window, container: vaxis.Window) !u16 {
         const minMsg = try std.fmt.allocPrint(self.allocator, "{d}ms", .{self.ts.min_latency});
         try self.state.messages.append(minMsg);
         const maxMsg = try std.fmt.allocPrint(self.allocator, "{d}ms", .{self.ts.max_latency});
@@ -201,7 +212,7 @@ pub const App = struct {
             });
             row += 1;
         }
-        const maxRow: u16 = @intCast(self.hostnames.len);
+        const startRow: u16 = @intCast(self.hostnames.len);
         _ = container.printSegment(.{
             .text = minMsg,
             .style = .{ .fg = COLORS[3] },
@@ -213,13 +224,18 @@ pub const App = struct {
             .text = maxMsg,
             .style = .{ .fg = COLORS[3] },
         }, .{
-            .row_offset = maxRow + 1,
+            .row_offset = startRow + 1,
             .col_offset = 1,
         });
 
-        // draw graph
-        const intervalsCount: usize = @intCast(win.width - verticalCol - 3);
+        return verticalCol + 2;
+    }
+
+    fn drawGraph(self: *App, win: vaxis.Window, container: vaxis.Window, graphStartCol: u16) !void {
+        const graphStartRow: u16 = @intCast(self.hostnames.len + 1);
+        const intervalsCount: usize = @intCast(win.width - graphStartCol - 1);
         const intervals = self.ts.getLastNIntervals(intervalsCount);
+
         var col_index: u16 = 0;
         while (col_index < intervals.len) {
             const results = intervals[col_index].crawl_results;
@@ -228,13 +244,14 @@ pub const App = struct {
                     if (std.mem.eql(u8, result.hostname, hostname)) {
                         const color_index = i % COLORS.len;
                         const color = COLORS[color_index];
+                        const row_offset = self.latencyRowIndex(result.latency_ms, win.height - graphStartRow - 2);
 
                         _ = container.printSegment(.{
-                            .text = "*",
+                            .text = "•",
                             .style = .{ .fg = color },
                         }, .{
-                            .row_offset = maxRow + 2,
-                            .col_offset = col_index + verticalCol + 3,
+                            .row_offset = row_offset + graphStartRow,
+                            .col_offset = col_index + graphStartCol + 1,
                         });
                     }
                 }
@@ -242,5 +259,26 @@ pub const App = struct {
 
             col_index += 1;
         }
+    }
+
+    fn latencyRowIndex(self: *App, latency: i32, rows: u16) u16 {
+        if (self.ts.min_latency == self.ts.max_latency) {
+            return 0;
+        }
+        if (latency < self.ts.min_latency) {
+            return 0;
+        }
+        if (latency > self.ts.max_latency) {
+            return 0;
+        }
+
+        const diff: f64 = @floatFromInt(latency - self.ts.min_latency);
+        const total: f64 = @floatFromInt(self.ts.max_latency - self.ts.min_latency);
+        const normalized: f64 = diff / total;
+        const inverted: f64 = 1.0 - normalized;
+        const rowsFloat: f64 = @floatFromInt(rows - 1);
+        const rowIndex: u16 = @intFromFloat(inverted * rowsFloat);
+
+        return rowIndex;
     }
 };

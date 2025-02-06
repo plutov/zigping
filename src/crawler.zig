@@ -5,9 +5,6 @@ const vaxis = @import("vaxis");
 // max size for server headers
 const headers_max_size = 4096;
 
-// max amount of intervals to store, we assume it's enough
-const maxIntervals: i32 = 1024;
-
 pub const CrawlResult = struct {
     success: bool,
     hostname: []const u8,
@@ -70,28 +67,36 @@ pub const Crawler = struct {
 
     pub fn start(self: *Crawler, hostnames: [][]const u8, loop: *vaxis.Loop(tui.Event), running: *std.atomic.Value(bool)) void {
         while (running.load(.monotonic)) {
+            var wg = std.Thread.WaitGroup{};
+            wg.reset();
+
             // TODO: use WaitGroup
             for (hostnames) |hostname| {
-                const result = self.crawl(self.allocator, hostname) catch blk: {
-                    const empty_res: CrawlResult = .{
-                        .success = false,
-                        .hostname = hostname,
-                        .latency_ms = 0,
-                        .status_code = std.http.Status.internal_server_error,
-                    };
-                    break :blk empty_res;
-                };
+                wg.start();
 
-                self.results.append(result) catch {};
+                _ = std.Thread.spawn(.{ .allocator = self.allocator }, struct {
+                    fn worker(_self: *Crawler, _hostname: []const u8, _wg: *std.Thread.WaitGroup) !void {
+                        const result = _self.crawl(_self.allocator, _hostname) catch blk: {
+                            const empty_res: CrawlResult = .{
+                                .success = false,
+                                .hostname = _hostname,
+                                .latency_ms = 0,
+                                .status_code = std.http.Status.internal_server_error,
+                            };
+                            break :blk empty_res;
+                        };
+
+                        _self.results.append(result) catch {};
+                        _wg.finish();
+                    }
+                }.worker, .{ self, hostname, &wg }) catch {};
             }
+
+            wg.wait();
 
             loop.postEvent(.{
                 .crawl_results = self.results.items[self.results.items.len - hostnames.len .. self.results.items.len],
             });
-
-            while (self.results.items.len > maxIntervals) {
-                _ = self.results.orderedRemove(0);
-            }
 
             std.time.sleep(std.time.ns_per_s / 2);
         }

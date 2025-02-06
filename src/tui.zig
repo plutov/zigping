@@ -220,16 +220,27 @@ pub const App = struct {
         // draw graph
         const intervalsCount: usize = @intCast(win.width - verticalCol - 3);
         const intervals = self.ts.getLastNIntervals(intervalsCount);
-        var col = verticalCol + 3;
-        while (col < intervals.len) {
-            _ = container.printSegment(.{
-                .text = "*",
-                .style = .{ .fg = COLORS[2] },
-            }, .{
-                .row_offset = maxRow + 2,
-                .col_offset = col,
-            });
-            col += 1;
+        var col_index: u16 = 0;
+        while (col_index < intervals.len) {
+            const results = intervals[col_index].crawl_results;
+            for (self.hostnames, 0..) |hostname, i| {
+                for (results) |result| {
+                    if (std.mem.eql(u8, result.hostname, hostname)) {
+                        const color_index = i % COLORS.len;
+                        const color = COLORS[color_index];
+
+                        _ = container.printSegment(.{
+                            .text = "*",
+                            .style = .{ .fg = color },
+                        }, .{
+                            .row_offset = maxRow + 2,
+                            .col_offset = col_index + verticalCol + 3,
+                        });
+                    }
+                }
+            }
+
+            col_index += 1;
         }
     }
 };

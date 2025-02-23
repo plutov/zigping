@@ -32,9 +32,12 @@ pub const App = struct {
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
 
-    statuses: std.ArrayList([]u8),
-    minMsg: ?[]const u8 = null,
-    maxMsg: ?[]const u8 = null,
+    state: struct {
+        messages: std.ArrayList([]u8),
+        statuses: std.ArrayList([]u8),
+        minMsg: ?[]const u8 = null,
+        maxMsg: ?[]const u8 = null,
+    },
 
     pub fn init(allocator: std.mem.Allocator, hostnames: [][]const u8) !App {
         return .{
@@ -45,7 +48,10 @@ pub const App = struct {
             .hostnames = hostnames,
             .crawler_running = std.atomic.Value(bool).init(true),
             .ts = try ts.TimeSeries.init(allocator),
-            .statuses = std.ArrayList([]u8).init(allocator),
+            .state = .{
+                .messages = std.ArrayList([]u8).init(allocator),
+                .statuses = std.ArrayList([]u8).init(allocator),
+            },
         };
     }
 
@@ -60,6 +66,11 @@ pub const App = struct {
         if (self.maxMsg) |msg| {
             self.allocator.free(msg);
         }
+
+        for (self.messages.items) |item| {
+            self.allocator.free(item);
+        }
+        self.messages.deinit();
 
         for (self.statuses.items) |item| {
             self.allocator.free(item);
@@ -198,7 +209,7 @@ pub const App = struct {
     }
 
     fn drawLegend(self: *App, win: vaxis.Window, container: vaxis.Window) !u16 {
-        // Deallocate old legend
+        // Deallocate old messages
         if (self.minMsg) |msg| {
             self.allocator.free(msg);
         }
@@ -245,7 +256,7 @@ pub const App = struct {
                 .row_offset = win.height - 3,
                 .col_offset = 1,
             });
-            if (self.maxMsg) |maxMsg| {
+            if (self.state.maxMsg) |maxMsg| {
                 _ = container.printSegment(.{
                     .text = maxMsg,
                     .style = .{ .fg = COLORS[3] },

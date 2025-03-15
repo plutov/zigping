@@ -14,12 +14,17 @@ const minHeight: u16 = 25;
 const smallScreenErr = "SCREEN IS TOO SMALL";
 
 // collection of colors
-const COLORS = [5]vaxis.Color{
-    .{ .rgb = .{ 255, 255, 0 } },
-    .{ .rgb = .{ 255, 0, 255 } },
-    .{ .rgb = .{ 0, 255, 255 } },
-    .{ .rgb = .{ 50, 150, 200 } },
-    .{ .rgb = .{ 100, 200, 100 } },
+const COLORS = [_]vaxis.Color{
+    .{ .rgb = .{ 255, 255, 0 } }, // Yellow
+    .{ .rgb = .{ 255, 0, 255 } }, // Magenta
+    .{ .rgb = .{ 0, 255, 255 } }, // Cyan
+    .{ .rgb = .{ 50, 150, 200 } }, // Light blue
+    .{ .rgb = .{ 100, 200, 100 } }, // Light green
+    .{ .rgb = .{ 255, 0, 0 } }, // Red
+    .{ .rgb = .{ 0, 255, 0 } }, // Green
+    .{ .rgb = .{ 0, 0, 255 } }, // Blue
+    .{ .rgb = .{ 255, 165, 0 } }, // Orange
+    .{ .rgb = .{ 128, 0, 128 } }, // Purple
 };
 
 pub const App = struct {

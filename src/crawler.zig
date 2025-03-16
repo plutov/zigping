@@ -70,7 +70,6 @@ pub const Crawler = struct {
             var wg = std.Thread.WaitGroup{};
             wg.reset();
 
-            // TODO: use WaitGroup
             for (hostnames) |hostname| {
                 wg.start();
 
